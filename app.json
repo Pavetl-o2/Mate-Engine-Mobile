@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Mate Engine",
+    "slug": "mate-engine-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.mateengine.mobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Allow microphone access for voice chat",
+        "NSPhotoLibraryUsageDescription": "Allow photo library access to share images",
+        "NSCameraUsageDescription": "Allow camera access to take photos"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.mateengine.mobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "CAMERA"
+      ]
+    },
+    "plugins": [
+      "expo-av",
+      "expo-document-picker",
+      "expo-image-picker"
+    ]
+  }
+}
