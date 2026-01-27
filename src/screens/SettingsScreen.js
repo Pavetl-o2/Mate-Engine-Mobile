@@ -1,6 +1,5 @@
 /**
- * Settings Screen
- * Configure Clawdbot server and API keys
+ * Settings Screen - Clean minimalist config
  */
 
 import React, { useState, useEffect } from 'react';
@@ -12,96 +11,77 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { clawdbotService } from '../services/ClawdbotService';
 
-// Theme
-const theme = {
-  background: '#1a1a2e',
-  surface: '#16213e',
-  primary: '#e94560',
-  secondary: '#0f3460',
-  text: '#ffffff',
-  textSecondary: '#a0a0a0',
+const palette = {
+  bg: '#0f1923',
+  card: '#172331',
+  accent: '#6c63ff',
+  white: '#f0f0f5',
+  muted: 'rgba(240,240,245,0.45)',
+  border: 'rgba(240,240,245,0.06)',
+  inputBg: 'rgba(15,25,35,0.6)',
   success: '#4ade80',
-  error: '#f87171'
+  error: '#f87171',
 };
 
 export default function SettingsScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [serverUrl, setServerUrl] = useState('');
   const [authToken, setAuthToken] = useState('');
   const [sessionId, setSessionId] = useState('');
   const [deepgramKey, setDeepgramKey] = useState('');
   const [elevenLabsKey, setElevenLabsKey] = useState('');
   const [elevenLabsVoice, setElevenLabsVoice] = useState('');
-
   const [isLoading, setIsLoading] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState(null);
+  const [connStatus, setConnStatus] = useState(null); // null | 'ok' | 'fail'
 
-  // Load current config
   useEffect(() => {
-    const config = clawdbotService.getConfig();
-    setServerUrl(config.serverUrl || '');
-    setSessionId(config.sessionId || 'mobile-main');
-    setElevenLabsVoice(config.elevenLabsVoiceId || 'k9294w367tNmQIywtFJI');
+    const c = clawdbotService.getConfig();
+    setServerUrl(c.serverUrl || '');
+    setSessionId(c.sessionId || 'mobile-main');
+    setElevenLabsVoice(c.elevenLabsVoiceId || 'k9294w367tNmQIywtFJI');
   }, []);
 
-  // Test connection
   const testConnection = async () => {
-    if (!serverUrl) {
-      Alert.alert('Error', 'Please enter server URL');
-      return;
-    }
-
+    if (!serverUrl) { Alert.alert('Error', 'Ingresa la URL del servidor'); return; }
     setIsLoading(true);
-    setConnectionStatus(null);
-
-    // Temporarily configure to test
+    setConnStatus(null);
     clawdbotService.configure({ serverUrl, authToken });
-
-    const result = await clawdbotService.healthCheck();
-
-    setConnectionStatus(result.ok ? 'connected' : 'failed');
+    const r = await clawdbotService.healthCheck();
+    setConnStatus(r.ok ? 'ok' : 'fail');
     setIsLoading(false);
-
-    if (result.ok) {
-      Alert.alert('Success', `Connected! Clawdbot: ${result.clawdbot}`);
-    } else {
-      Alert.alert('Failed', result.error || 'Could not connect to server');
-    }
+    if (r.ok) Alert.alert('Conectado', `Clawdbot: ${r.clawdbot || 'OK'}`);
+    else Alert.alert('Fallo', r.error || 'No se pudo conectar');
   };
 
-  // Save settings
-  const saveSettings = () => {
+  const save = () => {
     clawdbotService.configure({
-      serverUrl,
-      authToken,
-      sessionId,
+      serverUrl, authToken, sessionId,
       deepgramApiKey: deepgramKey,
       elevenLabsApiKey: elevenLabsKey,
-      elevenLabsVoiceId: elevenLabsVoice
+      elevenLabsVoiceId: elevenLabsVoice,
     });
-
-    Alert.alert('Saved', 'Settings saved successfully', [
-      { text: 'OK', onPress: () => navigation.goBack() }
+    Alert.alert('Guardado', 'Configuracion guardada', [
+      { text: 'OK', onPress: () => navigation.goBack() },
     ]);
   };
 
-  const renderInput = (label, value, setter, placeholder, secure = false, icon) => (
-    <View style={styles.inputGroup}>
+  const Field = ({ label, value, onChangeText, placeholder, secure, icon }) => (
+    <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
-      <View style={styles.inputContainer}>
-        {icon && (
-          <Ionicons name={icon} size={20} color={theme.textSecondary} style={styles.inputIcon} />
-        )}
+      <View style={styles.inputRow}>
+        {icon && <Ionicons name={icon} size={18} color={palette.muted} style={{ marginLeft: 12 }} />}
         <TextInput
-          style={[styles.input, icon && styles.inputWithIcon]}
+          style={[styles.input, icon && { paddingLeft: 8 }]}
           value={value}
-          onChangeText={setter}
+          onChangeText={onChangeText}
           placeholder={placeholder}
-          placeholderTextColor={theme.textSecondary}
+          placeholderTextColor="rgba(240,240,245,0.2)"
           secureTextEntry={secure}
           autoCapitalize="none"
           autoCorrect={false}
@@ -111,215 +91,166 @@ export default function SettingsScreen({ navigation }) {
   );
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Server Configuration */}
+    <ScrollView
+      style={[styles.root, { paddingTop: insets.top }]}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="chevron-back" size={24} color={palette.white} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Configuracion</Text>
+        <View style={{ width: 24 }} />
+      </View>
+
+      {/* Server */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          <Ionicons name="server-outline" size={18} /> Server Configuration
-        </Text>
+        <Text style={styles.sectionLabel}>SERVIDOR</Text>
 
-        {renderInput(
-          'Clawdbot Server URL',
-          serverUrl,
-          setServerUrl,
-          'http://your-ec2-ip:3000',
-          false,
-          'globe-outline'
-        )}
+        <Field label="URL del servidor" value={serverUrl} onChangeText={setServerUrl}
+          placeholder="http://tu-ip:3000" icon="globe-outline" />
+        <Field label="Token de autenticacion" value={authToken} onChangeText={setAuthToken}
+          placeholder="mi-token-secreto-12345" secure icon="key-outline" />
+        <Field label="Session ID" value={sessionId} onChangeText={setSessionId}
+          placeholder="mobile-main" icon="chatbubble-outline" />
 
-        {renderInput(
-          'Auth Token (optional)',
-          authToken,
-          setAuthToken,
-          'Your authentication token',
-          true,
-          'key-outline'
-        )}
-
-        {renderInput(
-          'Session ID',
-          sessionId,
-          setSessionId,
-          'mobile-main',
-          false,
-          'chatbubbles-outline'
-        )}
-
-        {/* Test Connection Button */}
-        <TouchableOpacity
-          style={styles.testButton}
-          onPress={testConnection}
-          disabled={isLoading}
-        >
+        <TouchableOpacity style={styles.testBtn} onPress={testConnection} disabled={isLoading}>
           {isLoading ? (
-            <ActivityIndicator color={theme.text} size="small" />
+            <ActivityIndicator color={palette.white} size="small" />
           ) : (
             <>
               <Ionicons
-                name={connectionStatus === 'connected' ? 'checkmark-circle' : 'pulse'}
-                size={20}
-                color={connectionStatus === 'connected' ? theme.success :
-                       connectionStatus === 'failed' ? theme.error : theme.text}
+                name={connStatus === 'ok' ? 'checkmark-circle' : connStatus === 'fail' ? 'close-circle' : 'pulse'}
+                size={18}
+                color={connStatus === 'ok' ? palette.success : connStatus === 'fail' ? palette.error : palette.white}
               />
-              <Text style={styles.testButtonText}>Test Connection</Text>
+              <Text style={styles.testBtnText}>Probar conexion</Text>
             </>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Voice Configuration */}
+      {/* Voice */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          <Ionicons name="mic-outline" size={18} /> Voice Configuration
-        </Text>
+        <Text style={styles.sectionLabel}>VOZ</Text>
 
-        {renderInput(
-          'Deepgram API Key',
-          deepgramKey,
-          setDeepgramKey,
-          'For speech-to-text',
-          true,
-          'ear-outline'
-        )}
-
-        <Text style={styles.hint}>
-          Get your key at: deepgram.com
-        </Text>
-
-        {renderInput(
-          'ElevenLabs API Key',
-          elevenLabsKey,
-          setElevenLabsKey,
-          'For text-to-speech',
-          true,
-          'volume-high-outline'
-        )}
-
-        {renderInput(
-          'Voice ID',
-          elevenLabsVoice,
-          setElevenLabsVoice,
-          'k9294w367tNmQIywtFJI (Jinx)',
-          false,
-          'person-outline'
-        )}
-
-        <Text style={styles.hint}>
-          Get your key and voice IDs at: elevenlabs.io
-        </Text>
+        <Field label="Deepgram API Key" value={deepgramKey} onChangeText={setDeepgramKey}
+          placeholder="Para speech-to-text" secure icon="ear-outline" />
+        <Field label="ElevenLabs API Key" value={elevenLabsKey} onChangeText={setElevenLabsKey}
+          placeholder="Para text-to-speech" secure icon="volume-high-outline" />
+        <Field label="Voice ID" value={elevenLabsVoice} onChangeText={setElevenLabsVoice}
+          placeholder="k9294w367tNmQIywtFJI" icon="person-outline" />
       </View>
 
-      {/* Save Button */}
-      <TouchableOpacity style={styles.saveButton} onPress={saveSettings}>
-        <Ionicons name="save-outline" size={20} color={theme.text} />
-        <Text style={styles.saveButtonText}>Save Settings</Text>
+      {/* Save */}
+      <TouchableOpacity style={styles.saveBtn} onPress={save}>
+        <Text style={styles.saveBtnText}>Guardar</Text>
       </TouchableOpacity>
 
-      {/* Info */}
-      <View style={styles.infoBox}>
-        <Ionicons name="information-circle-outline" size={20} color={theme.textSecondary} />
-        <Text style={styles.infoText}>
-          Voice features require both Deepgram (speech-to-text) and ElevenLabs (text-to-speech) API keys.
-          Text chat works with just the server URL.
-        </Text>
-      </View>
+      <Text style={styles.hint}>
+        El chat de texto funciona solo con la URL del servidor.{'\n'}
+        Para voz necesitas las keys de Deepgram y ElevenLabs.
+      </Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: theme.background
+    backgroundColor: palette.bg,
   },
   content: {
-    padding: 16
+    padding: 20,
+    paddingBottom: 40,
   },
-  section: {
-    backgroundColor: theme.surface,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 16
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: theme.text,
-    marginBottom: 16
-  },
-  inputGroup: {
-    marginBottom: 16
-  },
-  label: {
-    fontSize: 14,
-    color: theme.textSecondary,
-    marginBottom: 8
-  },
-  inputContainer: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: theme.secondary,
-    borderRadius: 12
+    justifyContent: 'space-between',
+    marginBottom: 28,
   },
-  inputIcon: {
-    paddingLeft: 12
+  headerTitle: {
+    color: palette.white,
+    fontSize: 17,
+    fontWeight: '600',
+  },
+
+  section: {
+    backgroundColor: palette.card,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: palette.muted,
+    letterSpacing: 1.2,
+    marginBottom: 14,
+  },
+
+  field: {
+    marginBottom: 14,
+  },
+  label: {
+    fontSize: 13,
+    color: 'rgba(240,240,245,0.6)',
+    marginBottom: 6,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.inputBg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
   },
   input: {
     flex: 1,
-    color: theme.text,
-    padding: 12,
-    fontSize: 15
+    color: palette.white,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
   },
-  inputWithIcon: {
-    paddingLeft: 8
-  },
-  hint: {
-    fontSize: 12,
-    color: theme.textSecondary,
-    marginTop: -8,
-    marginBottom: 16
-  },
-  testButton: {
+
+  testBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.secondary,
-    padding: 12,
+    backgroundColor: 'rgba(108,99,255,0.15)',
+    paddingVertical: 11,
     borderRadius: 12,
-    marginTop: 8
+    marginTop: 4,
+    gap: 8,
   },
-  testButtonText: {
-    color: theme.text,
-    marginLeft: 8,
-    fontSize: 14
+  testBtnText: {
+    color: palette.white,
+    fontSize: 14,
+    fontWeight: '500',
   },
-  saveButton: {
-    flexDirection: 'row',
+
+  saveBtn: {
+    backgroundColor: palette.accent,
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.primary,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16
+    marginBottom: 16,
   },
-  saveButtonText: {
-    color: theme.text,
+  saveBtnText: {
+    color: palette.white,
     fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 8
+    fontWeight: '700',
   },
-  infoBox: {
-    flexDirection: 'row',
-    backgroundColor: theme.surface,
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 32
+
+  hint: {
+    color: palette.muted,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
   },
-  infoText: {
-    flex: 1,
-    color: theme.textSecondary,
-    fontSize: 13,
-    marginLeft: 12,
-    lineHeight: 18
-  }
 });

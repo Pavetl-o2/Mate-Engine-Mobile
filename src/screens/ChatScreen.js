@@ -1,9 +1,9 @@
 /**
- * Chat Screen
- * Main chat interface with voice recording and file upload
+ * Chat Screen - Immersive full-screen design
+ * Avatar fills the background, chat messages overlay from bottom with gradient fade
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,30 +15,38 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  Animated
+  Animated,
+  Dimensions,
+  Image
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { clawdbotService } from '../services/ClawdbotService';
-import AvatarDisplay from '../components/AvatarDisplay';
 
-// Theme
-const theme = {
-  background: '#1a1a2e',
-  surface: '#16213e',
-  primary: '#e94560',
-  secondary: '#0f3460',
-  text: '#ffffff',
-  textSecondary: '#a0a0a0',
-  userBubble: '#0f3460',
-  aiBubble: '#16213e'
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+
+// Minimalist palette
+const palette = {
+  bg: '#0f1923',
+  card: 'rgba(15, 25, 35, 0.75)',
+  accent: '#6c63ff',
+  accentSoft: 'rgba(108, 99, 255, 0.15)',
+  white: '#f0f0f5',
+  muted: 'rgba(240, 240, 245, 0.5)',
+  userBubble: 'rgba(108, 99, 255, 0.85)',
+  aiBubble: 'rgba(30, 40, 55, 0.85)',
+  inputBg: 'rgba(30, 40, 55, 0.9)',
+  overlay: 'rgba(15, 25, 35, 0.6)',
 };
 
-export default function ChatScreen({ selectedAvatar }) {
+export default function ChatScreen({ navigation, selectedAvatar }) {
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -50,38 +58,24 @@ export default function ChatScreen({ selectedAvatar }) {
   const flatListRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Request permissions on mount
   useEffect(() => {
     (async () => {
       await Audio.requestPermissionsAsync();
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
-        playsInSilentModeIOS: true
+        playsInSilentModeIOS: true,
       });
     })();
-
-    return () => {
-      if (sound) {
-        sound.unloadAsync();
-      }
-    };
+    return () => { if (sound) sound.unloadAsync(); };
   }, []);
 
-  // Pulse animation for recording
+  // Pulse animation while recording
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.2,
-            duration: 500,
-            useNativeDriver: true
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 500,
-            useNativeDriver: true
-          })
+          Animated.timing(pulseAnim, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
         ])
       ).start();
     } else {
@@ -89,514 +83,459 @@ export default function ChatScreen({ selectedAvatar }) {
     }
   }, [isRecording]);
 
-  // Send text message
+  // --- Actions ---
+
   const sendMessage = async (text, attachedFile = null) => {
     if (!text.trim() && !attachedFile) return;
 
-    const userMessage = {
+    const userMsg = {
       id: Date.now().toString(),
       role: 'user',
       content: text,
       file: attachedFile,
-      timestamp: new Date()
+      timestamp: new Date(),
     };
-
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsLoading(true);
 
     try {
-      let result;
-
-      if (attachedFile) {
-        result = await clawdbotService.chatWithFile(
-          text,
-          attachedFile.uri,
-          attachedFile.name,
-          attachedFile.type
-        );
-      } else {
-        result = await clawdbotService.chat(text);
-      }
+      const result = attachedFile
+        ? await clawdbotService.chatWithFile(text, attachedFile.uri, attachedFile.name, attachedFile.type)
+        : await clawdbotService.chat(text);
 
       if (result.ok) {
-        const aiMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.response,
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, aiMessage]);
-
-        // Play TTS if available
-        if (clawdbotService.getConfig().hasElevenLabsKey) {
-          playTTS(result.response);
-        }
+        setMessages(prev => [
+          ...prev,
+          { id: (Date.now() + 1).toString(), role: 'assistant', content: result.response, timestamp: new Date() },
+        ]);
+        if (clawdbotService.getConfig().hasElevenLabsKey) playTTS(result.response);
       } else {
-        Alert.alert('Error', result.error || 'Failed to get response');
+        Alert.alert('Error', result.error || 'No response');
       }
-    } catch (error) {
-      Alert.alert('Error', error.message);
+    } catch (e) {
+      Alert.alert('Error', e.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Play text-to-speech
   const playTTS = async (text) => {
     try {
       setIsTalking(true);
-      const ttsResult = await clawdbotService.textToSpeech(text);
-
-      if (ttsResult.ok && ttsResult.audioBlob) {
-        // Convert blob to base64 and play
+      const tts = await clawdbotService.textToSpeech(text);
+      if (tts.ok && tts.audioBlob) {
         const reader = new FileReader();
         reader.onloadend = async () => {
-          const base64 = reader.result.split(',')[1];
-          const fileUri = FileSystem.cacheDirectory + 'tts_response.mp3';
-
-          await FileSystem.writeAsStringAsync(fileUri, base64, {
-            encoding: FileSystem.EncodingType.Base64
-          });
-
-          const { sound: newSound } = await Audio.Sound.createAsync(
-            { uri: fileUri },
-            { shouldPlay: true }
-          );
-
-          setSound(newSound);
-
-          newSound.setOnPlaybackStatusUpdate((status) => {
-            if (status.didJustFinish) {
-              setIsTalking(false);
-            }
-          });
+          const b64 = reader.result.split(',')[1];
+          const uri = FileSystem.cacheDirectory + 'tts.mp3';
+          await FileSystem.writeAsStringAsync(uri, b64, { encoding: FileSystem.EncodingType.Base64 });
+          const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
+          setSound(s);
+          s.setOnPlaybackStatusUpdate(st => { if (st.didJustFinish) setIsTalking(false); });
         };
-        reader.readAsDataURL(ttsResult.audioBlob);
+        reader.readAsDataURL(tts.audioBlob);
       }
-    } catch (error) {
-      console.error('TTS error:', error);
+    } catch {
       setIsTalking(false);
     }
   };
 
-  // Start voice recording
   const startRecording = async () => {
     try {
       const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please grant microphone permission');
-        return;
-      }
-
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true
-      });
-
-      const { recording: newRecording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-
-      setRecording(newRecording);
+      if (status !== 'granted') { Alert.alert('Permiso requerido', 'Permite el acceso al microfono'); return; }
+      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+      const { recording: r } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      setRecording(r);
       setIsRecording(true);
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      Alert.alert('Error', 'Failed to start recording');
+    } catch {
+      Alert.alert('Error', 'No se pudo grabar');
     }
   };
 
-  // Stop recording and send
   const stopRecording = async () => {
     if (!recording) return;
-
     setIsRecording(false);
     setIsLoading(true);
-
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       setRecording(null);
-
-      // Process voice
       const result = await clawdbotService.processVoice(uri);
-
       if (result.ok) {
-        // Add user message (transcription)
-        const userMessage = {
-          id: Date.now().toString(),
-          role: 'user',
-          content: result.transcription,
-          isVoice: true,
-          timestamp: new Date()
-        };
-
-        // Add AI response
-        const aiMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.response,
-          timestamp: new Date()
-        };
-
-        setMessages(prev => [...prev, userMessage, aiMessage]);
-
-        // Play audio response
+        setMessages(prev => [
+          ...prev,
+          { id: Date.now().toString(), role: 'user', content: result.transcription, isVoice: true, timestamp: new Date() },
+          { id: (Date.now() + 1).toString(), role: 'assistant', content: result.response, timestamp: new Date() },
+        ]);
         if (result.audioBlob) {
           const reader = new FileReader();
           reader.onloadend = async () => {
             setIsTalking(true);
-            const base64 = reader.result.split(',')[1];
-            const fileUri = FileSystem.cacheDirectory + 'voice_response.mp3';
-
-            await FileSystem.writeAsStringAsync(fileUri, base64, {
-              encoding: FileSystem.EncodingType.Base64
-            });
-
-            const { sound: newSound } = await Audio.Sound.createAsync(
-              { uri: fileUri },
-              { shouldPlay: true }
-            );
-
-            setSound(newSound);
-
-            newSound.setOnPlaybackStatusUpdate((status) => {
-              if (status.didJustFinish) {
-                setIsTalking(false);
-              }
-            });
+            const b64 = reader.result.split(',')[1];
+            const fUri = FileSystem.cacheDirectory + 'voice.mp3';
+            await FileSystem.writeAsStringAsync(fUri, b64, { encoding: FileSystem.EncodingType.Base64 });
+            const { sound: s } = await Audio.Sound.createAsync({ uri: fUri }, { shouldPlay: true });
+            setSound(s);
+            s.setOnPlaybackStatusUpdate(st => { if (st.didJustFinish) setIsTalking(false); });
           };
           reader.readAsDataURL(result.audioBlob);
         }
       } else {
-        Alert.alert('Error', result.error || 'Voice processing failed');
+        Alert.alert('Error', result.error || 'Fallo el procesamiento de voz');
       }
-    } catch (error) {
-      Alert.alert('Error', error.message);
+    } catch (e) {
+      Alert.alert('Error', e.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Pick document
-  const pickDocument = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: '*/*',
-        copyToCacheDirectory: true
-      });
-
-      if (!result.canceled && result.assets?.[0]) {
-        const file = result.assets[0];
-        Alert.prompt(
-          'Add a message',
-          `Sending: ${file.name}`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Send',
-              onPress: (message) => sendMessage(message || '', {
-                uri: file.uri,
-                name: file.name,
-                type: file.mimeType
-              })
-            }
-          ],
-          'plain-text',
-          ''
-        );
-      }
-    } catch (error) {
-      console.error('Document picker error:', error);
-    }
-  };
-
-  // Pick image
-  const pickImage = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8
-      });
-
-      if (!result.canceled && result.assets?.[0]) {
-        const image = result.assets[0];
-        const fileName = image.uri.split('/').pop();
-
-        Alert.prompt(
-          'Add a message',
-          'Sending image',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Send',
-              onPress: (message) => sendMessage(message || '', {
-                uri: image.uri,
-                name: fileName,
-                type: 'image/jpeg'
-              })
-            }
-          ],
-          'plain-text',
-          ''
-        );
-      }
-    } catch (error) {
-      console.error('Image picker error:', error);
-    }
-  };
-
-  // Show attachment options
   const showAttachmentOptions = () => {
-    Alert.alert(
-      'Attach File',
-      'Choose an option',
-      [
-        { text: 'Document', onPress: pickDocument },
-        { text: 'Photo', onPress: pickImage },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    Alert.alert('Adjuntar', 'Elige una opcion', [
+      {
+        text: 'Documento', onPress: async () => {
+          try {
+            const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+            if (!r.canceled && r.assets?.[0]) {
+              const f = r.assets[0];
+              sendMessage('', { uri: f.uri, name: f.name, type: f.mimeType });
+            }
+          } catch {}
+        }
+      },
+      {
+        text: 'Foto', onPress: async () => {
+          try {
+            const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
+            if (!r.canceled && r.assets?.[0]) {
+              const img = r.assets[0];
+              sendMessage('', { uri: img.uri, name: img.uri.split('/').pop(), type: 'image/jpeg' });
+            }
+          } catch {}
+        }
+      },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
   };
 
-  // Render message bubble
-  const renderMessage = ({ item }) => {
+  // --- Render ---
+
+  const renderMessage = useCallback(({ item, index }) => {
     const isUser = item.role === 'user';
-
     return (
-      <View style={[
-        styles.messageBubble,
-        isUser ? styles.userBubble : styles.aiBubble
-      ]}>
+      <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
         {item.isVoice && (
-          <View style={styles.voiceIndicator}>
-            <Ionicons name="mic" size={12} color={theme.textSecondary} />
-            <Text style={styles.voiceText}>Voice message</Text>
+          <View style={styles.voiceBadge}>
+            <Ionicons name="mic" size={10} color={palette.muted} />
+            <Text style={styles.voiceBadgeText}>voz</Text>
           </View>
         )}
-
         {item.file && (
-          <View style={styles.fileIndicator}>
-            <Ionicons name="document" size={16} color={theme.primary} />
-            <Text style={styles.fileName}>{item.file.name}</Text>
+          <View style={styles.fileBadge}>
+            <Ionicons name="document-attach" size={14} color={palette.accent} />
+            <Text style={styles.fileText} numberOfLines={1}>{item.file.name}</Text>
           </View>
         )}
-
-        <Text style={styles.messageText}>{item.content}</Text>
-
-        <Text style={styles.timestamp}>
-          {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </Text>
+        <Text style={styles.msgText}>{item.content}</Text>
       </View>
     );
-  };
+  }, []);
+
+  const bottomPad = Math.max(insets.bottom, 16);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={90}
-    >
-      {/* Avatar Display */}
-      <AvatarDisplay avatar={selectedAvatar} isTalking={isTalking} />
-
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.messageList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="chatbubbles-outline" size={48} color={theme.textSecondary} />
-            <Text style={styles.emptyText}>Start a conversation!</Text>
-          </View>
-        }
-      />
-
-      {/* Loading Indicator */}
-      {isLoading && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color={theme.primary} />
-          <Text style={styles.loadingText}>Thinking...</Text>
-        </View>
-      )}
-
-      {/* Input Area */}
-      <View style={styles.inputContainer}>
-        {/* Attachment Button */}
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={showAttachmentOptions}
-          disabled={isLoading || isRecording}
-        >
-          <Ionicons name="attach" size={24} color={theme.text} />
-        </TouchableOpacity>
-
-        {/* Text Input */}
-        <TextInput
-          style={styles.textInput}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder="Type a message..."
-          placeholderTextColor={theme.textSecondary}
-          multiline
-          maxLength={2000}
-          editable={!isLoading && !isRecording}
-        />
-
-        {/* Send or Record Button */}
-        {inputText.trim() ? (
-          <TouchableOpacity
-            style={[styles.iconButton, styles.sendButton]}
-            onPress={() => sendMessage(inputText)}
-            disabled={isLoading}
-          >
-            <Ionicons name="send" size={20} color={theme.text} />
-          </TouchableOpacity>
+    <View style={styles.root}>
+      {/* Full-screen avatar background */}
+      <View style={styles.avatarBg}>
+        {selectedAvatar?.thumbnail ? (
+          <Image source={selectedAvatar.thumbnail} style={styles.avatarImg} resizeMode="contain" />
         ) : (
-          <TouchableOpacity
-            style={[
-              styles.iconButton,
-              styles.recordButton,
-              isRecording && styles.recordingActive
-            ]}
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
-            disabled={isLoading}
-          >
-            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-              <Ionicons
-                name={isRecording ? 'stop' : 'mic'}
-                size={24}
-                color={isRecording ? '#fff' : theme.text}
-              />
-            </Animated.View>
-          </TouchableOpacity>
+          <View style={styles.avatarPlaceholder}>
+            <Ionicons name="person" size={120} color="rgba(108,99,255,0.2)" />
+          </View>
+        )}
+        {isTalking && (
+          <View style={styles.talkingRing}>
+            <View style={[styles.ringCircle, styles.ring1]} />
+            <View style={[styles.ringCircle, styles.ring2]} />
+          </View>
         )}
       </View>
-    </KeyboardAvoidingView>
+
+      {/* Gradient overlay for readability */}
+      <LinearGradient
+        colors={['transparent', 'rgba(15,25,35,0.4)', 'rgba(15,25,35,0.85)', palette.bg]}
+        locations={[0, 0.35, 0.6, 0.85]}
+        style={styles.gradientOverlay}
+        pointerEvents="none"
+      />
+
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="chevron-back" size={24} color={palette.white} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>{selectedAvatar?.name || 'Chat'}</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('Settings')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Ionicons name="settings-outline" size={22} color={palette.muted} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Chat messages - bottom aligned with fade */}
+      <KeyboardAvoidingView
+        style={styles.chatLayer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={item => item.id}
+          contentContainerStyle={[styles.msgList, { paddingBottom: 8 }]}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={null}
+        />
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={palette.accent} size="small" />
+            <Text style={styles.loadingText}>Pensando...</Text>
+          </View>
+        )}
+
+        {/* Input bar */}
+        <View style={[styles.inputBar, { paddingBottom: bottomPad }]}>
+          <TouchableOpacity
+            style={styles.inputIcon}
+            onPress={showAttachmentOptions}
+            disabled={isLoading || isRecording}
+          >
+            <Ionicons name="add-circle-outline" size={26} color={palette.muted} />
+          </TouchableOpacity>
+
+          <View style={styles.inputField}>
+            <TextInput
+              style={styles.textInput}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Escribe un mensaje..."
+              placeholderTextColor="rgba(240,240,245,0.3)"
+              multiline
+              maxLength={2000}
+              editable={!isLoading && !isRecording}
+            />
+          </View>
+
+          {inputText.trim() ? (
+            <TouchableOpacity
+              style={styles.sendBtn}
+              onPress={() => sendMessage(inputText)}
+              disabled={isLoading}
+            >
+              <Ionicons name="arrow-up" size={20} color={palette.white} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.micBtn, isRecording && styles.micBtnActive]}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+              disabled={isLoading}
+            >
+              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                <Ionicons name={isRecording ? 'radio' : 'mic'} size={22} color={isRecording ? '#fff' : palette.muted} />
+              </Animated.View>
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: theme.background
+    backgroundColor: palette.bg,
   },
-  messageList: {
-    padding: 16,
-    flexGrow: 1
-  },
-  emptyState: {
-    flex: 1,
+
+  // Full-screen avatar
+  avatarBg: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 60
   },
-  emptyText: {
-    color: theme.textSecondary,
-    marginTop: 12,
-    fontSize: 16
+  avatarImg: {
+    width: SCREEN_W * 0.85,
+    height: SCREEN_H * 0.75,
   },
-  messageBubble: {
-    maxWidth: '80%',
-    padding: 12,
-    borderRadius: 16,
-    marginBottom: 8
+  avatarPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: -SCREEN_H * 0.08,
+  },
+  talkingRing: {
+    position: 'absolute',
+    bottom: SCREEN_H * 0.35,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ringCircle: {
+    position: 'absolute',
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: 'rgba(108,99,255,0.3)',
+  },
+  ring1: { width: 160, height: 160 },
+  ring2: { width: 200, height: 200, borderColor: 'rgba(108,99,255,0.15)' },
+
+  // Gradient overlay
+  gradientOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  // Header
+  header: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    zIndex: 10,
+  },
+  headerTitle: {
+    color: palette.white,
+    fontSize: 17,
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+
+  // Chat layer
+  chatLayer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  msgList: {
+    paddingHorizontal: 16,
+    paddingTop: SCREEN_H * 0.55, // push messages to bottom half
+  },
+
+  // Bubbles
+  bubble: {
+    maxWidth: '78%',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    marginBottom: 6,
   },
   userBubble: {
-    backgroundColor: theme.userBubble,
+    backgroundColor: palette.userBubble,
     alignSelf: 'flex-end',
-    borderBottomRightRadius: 4
+    borderBottomRightRadius: 6,
   },
   aiBubble: {
-    backgroundColor: theme.aiBubble,
+    backgroundColor: palette.aiBubble,
     alignSelf: 'flex-start',
-    borderBottomLeftRadius: 4
+    borderBottomLeftRadius: 6,
   },
-  voiceIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4
-  },
-  voiceText: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    marginLeft: 4
-  },
-  fileIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.secondary,
-    padding: 8,
-    borderRadius: 8,
-    marginBottom: 8
-  },
-  fileName: {
-    fontSize: 12,
-    color: theme.text,
-    marginLeft: 8,
-    flex: 1
-  },
-  messageText: {
-    color: theme.text,
+  msgText: {
+    color: palette.white,
     fontSize: 15,
-    lineHeight: 20
+    lineHeight: 21,
   },
-  timestamp: {
-    fontSize: 10,
-    color: theme.textSecondary,
-    marginTop: 4,
-    alignSelf: 'flex-end'
-  },
-  loadingContainer: {
+  voiceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12
+    marginBottom: 3,
+  },
+  voiceBadgeText: {
+    fontSize: 10,
+    color: palette.muted,
+    marginLeft: 3,
+  },
+  fileBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: palette.accentSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginBottom: 6,
+  },
+  fileText: {
+    fontSize: 11,
+    color: palette.white,
+    marginLeft: 6,
+    flex: 1,
+  },
+
+  // Loading
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 6,
   },
   loadingText: {
-    color: theme.textSecondary,
-    marginLeft: 8
+    color: palette.muted,
+    marginLeft: 8,
+    fontSize: 13,
   },
-  inputContainer: {
+
+  // Input bar
+  inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    padding: 12,
-    backgroundColor: theme.surface,
-    borderTopWidth: 1,
-    borderTopColor: theme.secondary
+    paddingHorizontal: 12,
+    paddingTop: 10,
   },
-  iconButton: {
-    width: 44,
-    height: 44,
+  inputIcon: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
+  },
+  inputField: {
+    flex: 1,
+    backgroundColor: palette.inputBg,
+    borderRadius: 22,
+    marginHorizontal: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(240,240,245,0.08)',
   },
   textInput: {
-    flex: 1,
-    backgroundColor: theme.secondary,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: theme.text,
+    color: palette.white,
     fontSize: 15,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
     maxHeight: 100,
-    marginHorizontal: 8
   },
-  sendButton: {
-    backgroundColor: theme.primary,
-    borderRadius: 22
+  sendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: palette.accent,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  recordButton: {
-    backgroundColor: theme.secondary,
-    borderRadius: 22
+  micBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(30,40,55,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  recordingActive: {
-    backgroundColor: theme.primary
-  }
+  micBtnActive: {
+    backgroundColor: '#e04060',
+  },
 });

@@ -1,129 +1,79 @@
 /**
- * Mate Engine Mobile App
- * Main entry point with navigation
+ * Mate Engine Mobile - Main entry
  */
 
 import React, { useState, useEffect } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 
-// Screens
 import AvatarSelectionScreen from './src/screens/AvatarSelectionScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
-
-// Services
 import { clawdbotService } from './src/services/ClawdbotService';
 
 const Stack = createNativeStackNavigator();
 
-// App theme colors
-export const theme = {
-  background: '#1a1a2e',
-  surface: '#16213e',
-  primary: '#e94560',
-  secondary: '#0f3460',
-  text: '#ffffff',
-  textSecondary: '#a0a0a0',
-  success: '#4ade80',
-  error: '#f87171'
-};
+const BG = '#0f1923';
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedAvatar, setSelectedAvatar] = useState(null);
 
   useEffect(() => {
-    // Initialize app
-    const init = async () => {
-      // Load saved config (you can use AsyncStorage for persistence)
-      clawdbotService.configure({
-        serverUrl: 'http://YOUR_EC2_IP:3000', // Will be configured in settings
-        sessionId: 'mobile-main'
-      });
-
-      setIsLoading(false);
-    };
-
-    init();
+    clawdbotService.configure({ sessionId: 'mobile-main' });
+    setIsLoading(false);
   }, []);
 
   if (isLoading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={theme.primary} />
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color="#6c63ff" />
         <StatusBar style="light" />
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <Stack.Navigator
-        initialRouteName="AvatarSelection"
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: theme.surface
-          },
-          headerTintColor: theme.text,
-          headerTitleStyle: {
-            fontWeight: 'bold'
-          },
-          contentStyle: {
-            backgroundColor: theme.background
-          }
-        }}
-      >
-        <Stack.Screen
-          name="AvatarSelection"
-          options={{
-            title: 'Select Avatar',
-            headerRight: () => null
-          }}
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <StatusBar style="light" translucent backgroundColor="transparent" />
+        <Stack.Navigator
+          initialRouteName="AvatarSelection"
+          screenOptions={{ headerShown: false, contentStyle: { backgroundColor: BG } }}
         >
-          {(props) => (
-            <AvatarSelectionScreen
-              {...props}
-              selectedAvatar={selectedAvatar}
-              setSelectedAvatar={setSelectedAvatar}
-            />
-          )}
-        </Stack.Screen>
+          <Stack.Screen name="AvatarSelection">
+            {(props) => (
+              <AvatarSelectionScreen
+                {...props}
+                selectedAvatar={selectedAvatar}
+                setSelectedAvatar={setSelectedAvatar}
+              />
+            )}
+          </Stack.Screen>
 
-        <Stack.Screen
-          name="Chat"
-          options={{
-            title: 'Chat'
-          }}
-        >
-          {(props) => (
-            <ChatScreen
-              {...props}
-              selectedAvatar={selectedAvatar}
-            />
-          )}
-        </Stack.Screen>
+          <Stack.Screen name="Chat" options={{ animation: 'fade' }}>
+            {(props) => (
+              <ChatScreen {...props} selectedAvatar={selectedAvatar} />
+            )}
+          </Stack.Screen>
 
-        <Stack.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{
-            title: 'Settings'
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+          <Stack.Screen name="Settings" options={{ animation: 'slide_from_right' }}>
+            {(props) => <SettingsScreen {...props} />}
+          </Stack.Screen>
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: {
+  loading: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: theme.background
-  }
+    backgroundColor: BG,
+  },
 });

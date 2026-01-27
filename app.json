@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1a1a2e"
+      "backgroundColor": "#0f1923"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -18,15 +18,15 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.mateengine.mobile",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Allow microphone access for voice chat",
-        "NSPhotoLibraryUsageDescription": "Allow photo library access to share images",
-        "NSCameraUsageDescription": "Allow camera access to take photos"
+        "NSMicrophoneUsageDescription": "Permitir acceso al microfono para chat de voz",
+        "NSPhotoLibraryUsageDescription": "Permitir acceso a fotos para compartir imagenes",
+        "NSCameraUsageDescription": "Permitir acceso a la camara para tomar fotos"
       }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
+        "backgroundColor": "#0f1923"
       },
       "package": "com.mateengine.mobile",
       "permissions": [

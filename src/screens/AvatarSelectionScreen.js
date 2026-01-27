@@ -1,6 +1,6 @@
 /**
  * Avatar Selection Screen
- * Allows user to choose between 3D model and PNGTuber
+ * Minimalist grid for choosing between 3D model and PNGTuber
  */
 
 import React, { useState } from 'react';
@@ -11,288 +11,254 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 const { width } = Dimensions.get('window');
-const CARD_WIDTH = (width - 48) / 2;
+const CARD_W = (width - 56) / 2;
 
-// Theme
-const theme = {
-  background: '#1a1a2e',
-  surface: '#16213e',
-  primary: '#e94560',
-  secondary: '#0f3460',
-  text: '#ffffff',
-  textSecondary: '#a0a0a0'
+const palette = {
+  bg: '#0f1923',
+  card: '#172331',
+  accent: '#6c63ff',
+  white: '#f0f0f5',
+  muted: 'rgba(240,240,245,0.45)',
+  border: 'rgba(240,240,245,0.06)',
 };
 
-// Avatar types
-const AVATAR_TYPES = {
-  MODEL_3D: '3d',
-  PNGTUBER: 'pngtuber'
-};
+const AVATAR_TYPES = { MODEL_3D: '3d', PNGTUBER: 'pngtuber' };
 
-// Sample avatars (replace with actual assets)
+// Avatars list - thumbnails can be require() images or null for placeholder
 const AVATARS = [
   {
-    id: '3d-jinx',
-    name: 'Jinx 3D',
+    id: '3d-avatar',
+    name: 'Avatar 3D',
     type: AVATAR_TYPES.MODEL_3D,
-    thumbnail: null, // Will use placeholder
-    modelPath: 'models/jinx.glb'
+    thumbnail: null,
+    modelPath: 'assets/models/avatar.glb',
   },
   {
-    id: 'png-jinx',
-    name: 'Jinx PNGTuber',
+    id: 'png-avatar',
+    name: 'PNGTuber',
     type: AVATAR_TYPES.PNGTUBER,
-    thumbnail: null, // Will use placeholder
-    imagePath: 'pngtuber/jinx.png'
-  }
+    thumbnail: null,
+    imagePath: 'assets/pngtuber/',
+  },
 ];
 
 export default function AvatarSelectionScreen({ navigation, selectedAvatar, setSelectedAvatar }) {
-  const [localSelection, setLocalSelection] = useState(selectedAvatar?.id || null);
-
-  const handleSelect = (avatar) => {
-    setLocalSelection(avatar.id);
-  };
+  const insets = useSafeAreaInsets();
+  const [localSel, setLocalSel] = useState(selectedAvatar?.id || null);
 
   const handleContinue = () => {
-    const avatar = AVATARS.find(a => a.id === localSelection);
-    if (avatar) {
-      setSelectedAvatar(avatar);
+    const av = AVATARS.find(a => a.id === localSel);
+    if (av) {
+      setSelectedAvatar(av);
       navigation.navigate('Chat');
     }
   };
 
-  const renderAvatarCard = (avatar) => {
-    const isSelected = localSelection === avatar.id;
+  const renderCard = (avatar) => {
+    const selected = localSel === avatar.id;
     const is3D = avatar.type === AVATAR_TYPES.MODEL_3D;
 
     return (
       <TouchableOpacity
         key={avatar.id}
-        style={[styles.avatarCard, isSelected && styles.avatarCardSelected]}
-        onPress={() => handleSelect(avatar)}
-        activeOpacity={0.7}
+        style={[styles.card, selected && styles.cardSelected]}
+        onPress={() => setLocalSel(avatar.id)}
+        activeOpacity={0.8}
       >
-        {/* Avatar Preview */}
-        <View style={styles.avatarPreview}>
+        <View style={styles.preview}>
           {avatar.thumbnail ? (
-            <Image source={avatar.thumbnail} style={styles.avatarImage} />
+            <Image source={avatar.thumbnail} style={styles.previewImg} />
           ) : (
-            <View style={styles.avatarPlaceholder}>
+            <View style={styles.previewPlaceholder}>
               <Ionicons
-                name={is3D ? 'cube-outline' : 'person-outline'}
-                size={48}
-                color={theme.primary}
+                name={is3D ? 'cube-outline' : 'image-outline'}
+                size={40}
+                color={selected ? palette.accent : palette.muted}
               />
             </View>
           )}
-
-          {/* Type Badge */}
-          <View style={[styles.typeBadge, is3D ? styles.badge3D : styles.badgePNG]}>
-            <Text style={styles.typeBadgeText}>
-              {is3D ? '3D' : 'PNG'}
-            </Text>
+          <View style={[styles.badge, is3D ? styles.badge3D : styles.badgePNG]}>
+            <Text style={styles.badgeText}>{is3D ? '3D' : 'PNG'}</Text>
           </View>
-
-          {/* Selection Indicator */}
-          {isSelected && (
-            <View style={styles.selectedIndicator}>
-              <Ionicons name="checkmark-circle" size={24} color={theme.primary} />
+          {selected && (
+            <View style={styles.check}>
+              <Ionicons name="checkmark-circle" size={22} color={palette.accent} />
             </View>
           )}
         </View>
-
-        {/* Avatar Name */}
-        <Text style={styles.avatarName}>{avatar.name}</Text>
+        <Text style={[styles.cardName, selected && styles.cardNameActive]}>{avatar.name}</Text>
       </TouchableOpacity>
     );
   };
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Choose Your Avatar</Text>
-        <Text style={styles.subtitle}>
-          Select a 3D model or PNGTuber to chat with
-        </Text>
-      </View>
+    <View style={[styles.root, { paddingTop: insets.top + 16 }]}>
+      {/* Title */}
+      <Text style={styles.title}>Elige tu Avatar</Text>
+      <Text style={styles.subtitle}>Selecciona un modelo 3D o PNGTuber</Text>
 
-      {/* Avatar Grid */}
-      <ScrollView
-        contentContainerStyle={styles.avatarGrid}
-        showsVerticalScrollIndicator={false}
-      >
-        {AVATARS.map(renderAvatarCard)}
+      {/* Grid */}
+      <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
+        {AVATARS.map(renderCard)}
 
-        {/* Add More Placeholder */}
-        <TouchableOpacity
-          style={[styles.avatarCard, styles.addMoreCard]}
-          onPress={() => {/* Future: Add custom avatar */}}
-          activeOpacity={0.7}
-        >
-          <View style={styles.avatarPreview}>
-            <View style={styles.avatarPlaceholder}>
-              <Ionicons name="add" size={48} color={theme.textSecondary} />
+        {/* Add more */}
+        <TouchableOpacity style={[styles.card, styles.addCard]} activeOpacity={0.6}>
+          <View style={styles.preview}>
+            <View style={styles.previewPlaceholder}>
+              <Ionicons name="add" size={36} color={palette.muted} />
             </View>
           </View>
-          <Text style={[styles.avatarName, styles.addMoreText]}>Add More</Text>
+          <Text style={[styles.cardName, { color: palette.muted }]}>Agregar</Text>
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Settings Button */}
-      <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => navigation.navigate('Settings')}
-      >
-        <Ionicons name="settings-outline" size={20} color={theme.text} />
-        <Text style={styles.settingsButtonText}>Configure AI</Text>
-      </TouchableOpacity>
+      {/* Bottom actions */}
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+        <TouchableOpacity style={styles.settingsBtn} onPress={() => navigation.navigate('Settings')}>
+          <Ionicons name="settings-outline" size={20} color={palette.muted} />
+        </TouchableOpacity>
 
-      {/* Continue Button */}
-      <TouchableOpacity
-        style={[
-          styles.continueButton,
-          !localSelection && styles.continueButtonDisabled
-        ]}
-        onPress={handleContinue}
-        disabled={!localSelection}
-      >
-        <Text style={styles.continueButtonText}>Continue to Chat</Text>
-        <Ionicons name="arrow-forward" size={20} color={theme.text} />
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.continueBtn, !localSel && styles.continueBtnDisabled]}
+          onPress={handleContinue}
+          disabled={!localSel}
+        >
+          <Text style={styles.continueBtnText}>Continuar</Text>
+          <Ionicons name="arrow-forward" size={18} color={palette.white} />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: theme.background,
-    padding: 16
-  },
-  header: {
-    marginBottom: 24
+    backgroundColor: palette.bg,
+    paddingHorizontal: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: theme.text,
-    marginBottom: 8
+    fontSize: 26,
+    fontWeight: '700',
+    color: palette.white,
+    letterSpacing: 0.2,
   },
   subtitle: {
-    fontSize: 16,
-    color: theme.textSecondary
+    fontSize: 14,
+    color: palette.muted,
+    marginTop: 6,
+    marginBottom: 28,
   },
-  avatarGrid: {
+
+  grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    paddingBottom: 16
+    paddingBottom: 20,
   },
-  avatarCard: {
-    width: CARD_WIDTH,
-    backgroundColor: theme.surface,
+  card: {
+    width: CARD_W,
+    backgroundColor: palette.card,
     borderRadius: 16,
-    padding: 12,
+    padding: 10,
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: 'transparent'
+    borderWidth: 1.5,
+    borderColor: palette.border,
   },
-  avatarCardSelected: {
-    borderColor: theme.primary
+  cardSelected: {
+    borderColor: palette.accent,
+    backgroundColor: 'rgba(108,99,255,0.06)',
   },
-  addMoreCard: {
+  addCard: {
     borderStyle: 'dashed',
-    borderColor: theme.textSecondary,
-    opacity: 0.6
+    borderColor: 'rgba(240,240,245,0.12)',
   },
-  avatarPreview: {
+  preview: {
     width: '100%',
     aspectRatio: 1,
-    backgroundColor: theme.secondary,
+    backgroundColor: 'rgba(15,25,35,0.5)',
     borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 10,
     overflow: 'hidden',
-    position: 'relative'
+    position: 'relative',
   },
-  avatarImage: {
+  previewImg: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover'
+    resizeMode: 'cover',
   },
-  avatarPlaceholder: {
+  previewPlaceholder: {
     flex: 1,
     justifyContent: 'center',
-    alignItems: 'center'
+    alignItems: 'center',
   },
-  typeBadge: {
+  badge: {
     position: 'absolute',
     top: 8,
     left: 8,
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8
+    paddingVertical: 3,
+    borderRadius: 6,
   },
-  badge3D: {
-    backgroundColor: '#8b5cf6'
-  },
-  badgePNG: {
-    backgroundColor: '#06b6d4'
-  },
-  typeBadgeText: {
+  badge3D: { backgroundColor: 'rgba(139,92,246,0.85)' },
+  badgePNG: { backgroundColor: 'rgba(6,182,212,0.85)' },
+  badgeText: {
     fontSize: 10,
-    fontWeight: 'bold',
-    color: theme.text
+    fontWeight: '700',
+    color: '#fff',
   },
-  selectedIndicator: {
+  check: {
     position: 'absolute',
     top: 8,
-    right: 8
+    right: 8,
   },
-  avatarName: {
-    fontSize: 14,
+  cardName: {
+    fontSize: 13,
     fontWeight: '600',
-    color: theme.text,
-    textAlign: 'center'
+    color: palette.white,
+    textAlign: 'center',
   },
-  addMoreText: {
-    color: theme.textSecondary
+  cardNameActive: {
+    color: palette.accent,
   },
-  settingsButton: {
+
+  bottomBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+  },
+  settingsBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: palette.card,
     justifyContent: 'center',
-    backgroundColor: theme.surface,
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12
-  },
-  settingsButtonText: {
-    color: theme.text,
-    marginLeft: 8,
-    fontSize: 14
-  },
-  continueButton: {
-    flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: palette.border,
+  },
+  continueBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: palette.accent,
+    flexDirection: 'row',
     justifyContent: 'center',
-    backgroundColor: theme.primary,
-    padding: 16,
-    borderRadius: 12
+    alignItems: 'center',
+    gap: 8,
   },
-  continueButtonDisabled: {
-    opacity: 0.5
+  continueBtnDisabled: {
+    opacity: 0.35,
   },
-  continueButtonText: {
-    color: theme.text,
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginRight: 8
-  }
+  continueBtnText: {
+    color: palette.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
 });
