@@ -28,6 +28,7 @@ import * as FileSystem from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import { clawdbotService } from '../services/ClawdbotService';
+import Avatar3DRenderer from '../components/Avatar3DRenderer';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -249,7 +250,9 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
     <View style={styles.root}>
       {/* Full-screen avatar background */}
       <View style={styles.avatarBg}>
-        {selectedAvatar?.thumbnail ? (
+        {selectedAvatar?.type === '3d' ? (
+          <Avatar3DRenderer isTalking={isTalking} />
+        ) : selectedAvatar?.thumbnail ? (
           <Image source={selectedAvatar.thumbnail} style={styles.avatarImg} resizeMode="contain" />
         ) : (
           <View style={styles.avatarPlaceholder}>
