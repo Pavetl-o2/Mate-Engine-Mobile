@@ -80,15 +80,30 @@ export default function Avatar3DRenderer({ modelAsset, isTalking, style }) {
         const asset = Asset.fromModule(require('../../assets/models/avatar.glb'));
         await asset.downloadAsync();
 
+        // Disable createImageBitmap so GLTFLoader falls back to ImageLoader,
+        // which expo-three polyfills correctly for React Native.
+        const _cib = globalThis.createImageBitmap;
+        globalThis.createImageBitmap = undefined;
+
         const loader = new GLTFLoader();
 
         // Fetch the model data as ArrayBuffer
-        const response = await fetch(asset.localUri || asset.uri);
+        const assetUri = asset.localUri || asset.uri;
+        const response = await fetch(assetUri);
         const arrayBuffer = await response.arrayBuffer();
 
-        const gltf = await new Promise((resolve, reject) => {
-          loader.parse(arrayBuffer, '', resolve, reject);
-        });
+        // Use the asset directory as basePath so relative texture refs resolve
+        const basePath = assetUri.substring(0, assetUri.lastIndexOf('/') + 1);
+
+        let gltf;
+        try {
+          gltf = await new Promise((resolve, reject) => {
+            loader.parse(arrayBuffer, basePath, resolve, reject);
+          });
+        } finally {
+          // Restore createImageBitmap after parsing
+          globalThis.createImageBitmap = _cib;
+        }
 
         const model = gltf.scene;
         modelRef.current = model;
