@@ -10,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 // URL del modelo desde GitHub (raw)
-const MODEL_URL = 'https://raw.githubusercontent.com/Pavetl-o2/Mate-Engine-Mobile/claude/fix-3d-model-loading-PTbRl/assets/models/avatar.glb';
+const MODEL_URL = 'https://raw.githubusercontent.com/Pavetl-o2/Mate-Engine-Mobile/main/assets/models/avatar.glb';
 
 const getHtmlContent = () => `
 <!DOCTYPE html>
