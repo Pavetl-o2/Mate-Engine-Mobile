@@ -1,5 +1,5 @@
 /**
- * Chat Screen - Immersive full-screen design
+ * Chat Screen - Immersive full-screen design with streaming text
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -44,6 +44,48 @@ const palette = {
   overlay: 'rgba(15, 25, 35, 0.6)',
 };
 
+// Animated typing dots component
+function TypingIndicator() {
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animate = () => {
+      const duration = 400;
+      const delay = 150;
+      
+      Animated.sequence([
+        Animated.timing(dot1, { toValue: 1, duration, useNativeDriver: true }),
+        Animated.timing(dot2, { toValue: 1, duration, useNativeDriver: true }),
+        Animated.timing(dot3, { toValue: 1, duration, useNativeDriver: true }),
+        Animated.delay(200),
+        Animated.parallel([
+          Animated.timing(dot1, { toValue: 0, duration: 200, useNativeDriver: true }),
+          Animated.timing(dot2, { toValue: 0, duration: 200, useNativeDriver: true }),
+          Animated.timing(dot3, { toValue: 0, duration: 200, useNativeDriver: true }),
+        ])
+      ]).start(animate);
+    };
+    animate();
+  }, []);
+
+  const dotStyle = (anim) => ({
+    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
+    transform: [{
+      translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [0, -4] })
+    }]
+  });
+
+  return (
+    <View style={styles.typingContainer}>
+      <Animated.View style={[styles.typingDot, dotStyle(dot1)]} />
+      <Animated.View style={[styles.typingDot, dotStyle(dot2)]} />
+      <Animated.View style={[styles.typingDot, dotStyle(dot3)]} />
+    </View>
+  );
+}
+
 export default function ChatScreen({ navigation, selectedAvatar }) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState([]);
@@ -54,6 +96,8 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
   const [isTalking, setIsTalking] = useState(false);
   const [sound, setSound] = useState(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [streamingText, setStreamingText] = useState(''); // For streaming display
+  const [loadingStage, setLoadingStage] = useState(null); // 'thinking' | 'speaking' | null
 
   const flatListRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -119,26 +163,65 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
     startFadeOut(messageId);
     setInputText('');
     setIsLoading(true);
+    setLoadingStage('thinking');
+    setStreamingText('');
 
     try {
+      // Create placeholder message for streaming
+      const assistantMessageId = (Date.now() + 1).toString();
+      setMessages(prev => [...prev, { 
+        id: assistantMessageId, 
+        role: 'assistant', 
+        content: '', 
+        isStreaming: true,
+        timestamp: new Date() 
+      }]);
+
       const result = attachedFile
         ? await clawdbotService.chatWithFile(text, attachedFile.uri, attachedFile.name, attachedFile.type)
         : await clawdbotService.chat(text);
 
       if (result.ok) {
-        const assistantMessageId = (Date.now() + 1).toString();
-        setMessages(prev => [...prev, { id: assistantMessageId, role: 'assistant', content: result.response, timestamp: new Date() }]);
+        setLoadingStage('speaking');
+        
+        // Stream the text character by character
+        await clawdbotService.streamText(result.response, (char, currentText) => {
+          setStreamingText(currentText);
+          setMessages(prev => prev.map(m => 
+            m.id === assistantMessageId 
+              ? { ...m, content: currentText }
+              : m
+          ));
+          flatListRef.current?.scrollToEnd({ animated: false });
+        }, { charDelay: 12, wordDelay: 25, sentenceDelay: 60 });
+
+        // Mark as finished streaming
+        setMessages(prev => prev.map(m => 
+          m.id === assistantMessageId 
+            ? { ...m, isStreaming: false }
+            : m
+        ));
+        
         startFadeOut(assistantMessageId);
+        
+        // Start TTS in parallel
         const config = clawdbotService.getConfig();
-        if (config.hasCartesiaKey) playTTSCartesia(result.response);
-        else if (config.hasElevenLabsKey) playTTS(result.response);
+        if (config.hasCartesiaKey) {
+          playTTSCartesia(result.response);
+        } else if (config.hasElevenLabsKey) {
+          playTTS(result.response);
+        }
       } else {
+        // Remove streaming message on error
+        setMessages(prev => prev.filter(m => m.id !== assistantMessageId));
         Alert.alert('Error', result.error || 'No response');
       }
     } catch (e) {
       Alert.alert('Error', e.message);
     } finally {
       setIsLoading(false);
+      setLoadingStage(null);
+      setStreamingText('');
     }
   };
 
@@ -154,7 +237,9 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           await writeAsStringAsync(uri, b64, { encoding: 'base64' });
           const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
           setSound(s);
-          s.setOnPlaybackStatusUpdate(st => { if (st.didJustFinish) setIsTalking(false); });
+          s.setOnPlaybackStatusUpdate(st => { 
+            if (st.didJustFinish) setIsTalking(false); 
+          });
         };
         reader.readAsDataURL(tts.audioBlob);
       }
@@ -164,52 +249,77 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
   const playTTSCartesia = async (text) => {
     try {
       setIsTalking(true);
-      const tts = await clawdbotService.textToSpeechCartesia(text);
+      const tts = await clawdbotService.textToSpeechCartesia(text, (stage) => {
+        console.log('TTS stage:', stage);
+      });
+      
       if (tts.ok && tts.audioBlob) {
         const reader = new FileReader();
         reader.onloadend = async () => {
           const b64 = reader.result.split(',')[1];
           const uri = cacheDirectory + 'tts_cartesia.mp3';
           await writeAsStringAsync(uri, b64, { encoding: 'base64' });
-          const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true });
+          const { sound: s } = await Audio.Sound.createAsync(
+            { uri }, 
+            { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true }
+          );
           setSound(s);
-          s.setOnPlaybackStatusUpdate(st => { if (st.didJustFinish) setIsTalking(false); });
+          s.setOnPlaybackStatusUpdate(st => { 
+            if (st.didJustFinish) setIsTalking(false); 
+          });
         };
         reader.readAsDataURL(tts.audioBlob);
       }
-    } catch (error) { console.error(error); setIsTalking(false); }
+    } catch (error) { 
+      console.error(error); 
+      setIsTalking(false); 
+    }
   };
 
   const startRecording = async () => {
     try {
       const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') { Alert.alert('Permiso requerido', 'Permite el acceso al microfono'); return; }
+      if (status !== 'granted') { 
+        Alert.alert('Permiso requerido', 'Permite el acceso al microfono'); 
+        return; 
+      }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording: r } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       setRecording(r);
       setIsRecording(true);
-    } catch { Alert.alert('Error', 'No se pudo grabar'); }
+    } catch { 
+      Alert.alert('Error', 'No se pudo grabar'); 
+    }
   };
 
   const stopRecording = async () => {
     if (!recording) return;
     setIsRecording(false);
     setIsLoading(true);
+    setLoadingStage('transcribing');
+    
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       setRecording(null);
-      const result = await clawdbotService.processVoice(uri);
+      
+      const result = await clawdbotService.processVoice(uri, null, (stage) => {
+        setLoadingStage(stage);
+      });
+      
       if (result.ok) {
         const userMessageId = Date.now().toString();
         const assistantMessageId = (Date.now() + 1).toString();
+        
         setMessages(prev => [
           ...prev,
           { id: userMessageId, role: 'user', content: result.transcription, isVoice: true, timestamp: new Date() },
           { id: assistantMessageId, role: 'assistant', content: result.response, timestamp: new Date() },
         ]);
+        
         startFadeOut(userMessageId);
         startFadeOut(assistantMessageId);
+        
         if (result.audioBlob) {
           const reader = new FileReader();
           reader.onloadend = async () => {
@@ -217,9 +327,14 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
             const b64 = reader.result.split(',')[1];
             const fUri = cacheDirectory + 'voice_response.mp3';
             await writeAsStringAsync(fUri, b64, { encoding: 'base64' });
-            const { sound: s } = await Audio.Sound.createAsync({ uri: fUri }, { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true });
+            const { sound: s } = await Audio.Sound.createAsync(
+              { uri: fUri }, 
+              { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true }
+            );
             setSound(s);
-            s.setOnPlaybackStatusUpdate(st => { if (st.didJustFinish) setIsTalking(false); });
+            s.setOnPlaybackStatusUpdate(st => { 
+              if (st.didJustFinish) setIsTalking(false); 
+            });
           };
           reader.readAsDataURL(result.audioBlob);
         }
@@ -230,6 +345,7 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
       Alert.alert('Error', e.message);
     } finally {
       setIsLoading(false);
+      setLoadingStage(null);
     }
   };
 
@@ -238,24 +354,51 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
       { text: 'Documento', onPress: async () => {
         try {
           const r = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
-          if (!r.canceled && r.assets?.[0]) sendMessage('', { uri: r.assets[0].uri, name: r.assets[0].name, type: r.assets[0].mimeType });
+          if (!r.canceled && r.assets?.[0]) {
+            sendMessage('', { uri: r.assets[0].uri, name: r.assets[0].name, type: r.assets[0].mimeType });
+          }
         } catch {}
       }},
       { text: 'Foto', onPress: async () => {
         try {
-          const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8 });
-          if (!r.canceled && r.assets?.[0]) sendMessage('', { uri: r.assets[0].uri, name: r.assets[0].uri.split('/').pop(), type: 'image/jpeg' });
+          const r = await ImagePicker.launchImageLibraryAsync({ 
+            mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+            quality: 0.8 
+          });
+          if (!r.canceled && r.assets?.[0]) {
+            sendMessage('', { 
+              uri: r.assets[0].uri, 
+              name: r.assets[0].uri.split('/').pop(), 
+              type: 'image/jpeg' 
+            });
+          }
         } catch {}
       }},
       { text: 'Cancelar', style: 'cancel' },
     ]);
   };
 
+  const getLoadingText = () => {
+    switch (loadingStage) {
+      case 'transcribing': return 'Escuchando...';
+      case 'thinking': return 'Pensando...';
+      case 'speaking': return 'Generando voz...';
+      case 'connecting': return 'Conectando...';
+      case 'receiving': return 'Recibiendo audio...';
+      default: return 'Cargando...';
+    }
+  };
+
   const renderMessage = useCallback(({ item }) => {
     const isUser = item.role === 'user';
     const opacityAnim = messageAnims[item.id] || new Animated.Value(1);
+    
     return (
-      <Animated.View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble, { opacity: opacityAnim }]}>
+      <Animated.View style={[
+        styles.bubble, 
+        isUser ? styles.userBubble : styles.aiBubble, 
+        { opacity: opacityAnim }
+      ]}>
         {item.isVoice && (
           <View style={styles.voiceBadge}>
             <Ionicons name="mic" size={10} color={palette.muted} />
@@ -269,6 +412,11 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           </View>
         )}
         <Text style={styles.msgText}>{item.content}</Text>
+        {item.isStreaming && (
+          <View style={styles.streamingIndicator}>
+            <TypingIndicator />
+          </View>
+        )}
       </Animated.View>
     );
   }, []);
@@ -296,11 +444,17 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
       </View>
 
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()} 
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Ionicons name="chevron-back" size={24} color={palette.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{selectedAvatar?.name || 'Chat'}</Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Settings')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+        <TouchableOpacity 
+          onPress={() => navigation.navigate('Settings')} 
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
           <Ionicons name="settings-outline" size={22} color={palette.muted} />
         </TouchableOpacity>
       </View>
@@ -321,15 +475,19 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           keyboardShouldPersistTaps="handled"
         />
 
-        {isLoading && (
+        {(isLoading || loadingStage) && (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={palette.accent} size="small" />
-            <Text style={styles.loadingText}>Pensando...</Text>
+            <Text style={styles.loadingText}>{getLoadingText()}</Text>
           </View>
         )}
 
         <View style={[styles.inputBar, { paddingBottom: bottomPad, marginBottom: keyboardHeight }]}>
-          <TouchableOpacity style={styles.inputIcon} onPress={showAttachmentOptions} disabled={isLoading || isRecording}>
+          <TouchableOpacity 
+            style={styles.inputIcon} 
+            onPress={showAttachmentOptions} 
+            disabled={isLoading || isRecording}
+          >
             <Ionicons name="add-circle-outline" size={26} color={palette.muted} />
           </TouchableOpacity>
 
@@ -347,13 +505,26 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           </View>
 
           {inputText.trim() ? (
-            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage(inputText)} disabled={isLoading}>
+            <TouchableOpacity 
+              style={styles.sendBtn} 
+              onPress={() => sendMessage(inputText)} 
+              disabled={isLoading}
+            >
               <Ionicons name="arrow-up" size={20} color={palette.white} />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={[styles.micBtn, isRecording && styles.micBtnActive]} onPressIn={startRecording} onPressOut={stopRecording} disabled={isLoading}>
+            <TouchableOpacity 
+              style={[styles.micBtn, isRecording && styles.micBtnActive]} 
+              onPressIn={startRecording} 
+              onPressOut={stopRecording} 
+              disabled={isLoading}
+            >
               <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-                <Ionicons name={isRecording ? 'radio' : 'mic'} size={22} color={isRecording ? '#fff' : palette.muted} />
+                <Ionicons 
+                  name={isRecording ? 'radio' : 'mic'} 
+                  size={22} 
+                  color={isRecording ? '#fff' : palette.muted} 
+                />
               </Animated.View>
             </TouchableOpacity>
           )}
@@ -372,25 +543,96 @@ const styles = StyleSheet.create({
   ringCircle: { position: 'absolute', borderRadius: 999, borderWidth: 1.5, borderColor: 'rgba(108,99,255,0.3)' },
   ring1: { width: 160, height: 160 },
   ring2: { width: 200, height: 200, borderColor: 'rgba(108,99,255,0.15)' },
-  header: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 12, zIndex: 10 },
+  header: { 
+    position: 'absolute', 
+    top: 0, 
+    left: 0, 
+    right: 0, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 16, 
+    paddingBottom: 12, 
+    zIndex: 10 
+  },
   headerTitle: { color: palette.white, fontSize: 17, fontWeight: '600', letterSpacing: 0.3 },
   container: { flex: 1, justifyContent: 'flex-end' },
   msgList: { paddingHorizontal: 16, paddingTop: SCREEN_H * 0.5 },
-  bubble: { maxWidth: '78%', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18, marginBottom: 6 },
+  bubble: { 
+    maxWidth: '78%', 
+    paddingHorizontal: 14, 
+    paddingVertical: 10, 
+    borderRadius: 18, 
+    marginBottom: 6 
+  },
   userBubble: { backgroundColor: palette.userBubble, alignSelf: 'flex-end', borderBottomRightRadius: 6 },
   aiBubble: { backgroundColor: palette.aiBubble, alignSelf: 'flex-start', borderBottomLeftRadius: 6 },
   msgText: { color: palette.white, fontSize: 15, lineHeight: 21 },
+  streamingIndicator: { marginTop: 4, marginLeft: -2 },
+  typingContainer: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  typingDot: { 
+    width: 5, 
+    height: 5, 
+    borderRadius: 3, 
+    backgroundColor: palette.muted 
+  },
   voiceBadge: { flexDirection: 'row', alignItems: 'center', marginBottom: 3 },
   voiceBadgeText: { fontSize: 10, color: palette.muted, marginLeft: 3 },
-  fileBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: palette.accentSoft, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, marginBottom: 6 },
+  fileBadge: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: palette.accentSoft, 
+    paddingHorizontal: 8, 
+    paddingVertical: 5, 
+    borderRadius: 8, 
+    marginBottom: 6 
+  },
   fileText: { fontSize: 11, color: palette.white, marginLeft: 6, flex: 1 },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 6 },
+  loadingRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 20, 
+    paddingVertical: 6 
+  },
   loadingText: { color: palette.muted, marginLeft: 8, fontSize: 13 },
-  inputBar: { flexDirection: 'row', alignItems: 'flex-end', paddingHorizontal: 12, paddingTop: 10 },
+  inputBar: { 
+    flexDirection: 'row', 
+    alignItems: 'flex-end', 
+    paddingHorizontal: 12, 
+    paddingTop: 10 
+  },
   inputIcon: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  inputField: { flex: 1, backgroundColor: palette.inputBg, borderRadius: 22, marginHorizontal: 6, borderWidth: 1, borderColor: 'rgba(240,240,245,0.08)' },
-  textInput: { color: palette.white, fontSize: 15, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, maxHeight: 100 },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.accent, justifyContent: 'center', alignItems: 'center' },
-  micBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(30,40,55,0.8)', justifyContent: 'center', alignItems: 'center' },
+  inputField: { 
+    flex: 1, 
+    backgroundColor: palette.inputBg, 
+    borderRadius: 22, 
+    marginHorizontal: 6, 
+    borderWidth: 1, 
+    borderColor: 'rgba(240,240,245,0.08)' 
+  },
+  textInput: { 
+    color: palette.white, 
+    fontSize: 15, 
+    paddingHorizontal: 16, 
+    paddingTop: 10, 
+    paddingBottom: 10, 
+    maxHeight: 100 
+  },
+  sendBtn: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: palette.accent, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  micBtn: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: 'rgba(30,40,55,0.8)', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
   micBtnActive: { backgroundColor: '#e04060' },
 });
