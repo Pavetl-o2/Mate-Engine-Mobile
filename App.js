@@ -23,7 +23,11 @@ export default function App() {
   const [selectedAvatar, setSelectedAvatar] = useState(null);
 
   useEffect(() => {
-    clawdbotService.configure({ sessionId: 'mobile-main' });
+    clawdbotService.configure({ 
+      sessionId: 'mobile-main',
+      cartesiaApiKey: 'sk_car_qCdZhM2FLfExRGcu4kGEry',
+      cartesiaVoiceId: '5ae6768d-7263-4c26-8d3a-a22976c534df'
+    });
     setIsLoading(false);
   }, []);
 
