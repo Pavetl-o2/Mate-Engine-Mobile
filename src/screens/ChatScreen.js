@@ -1,5 +1,5 @@
 /**
- * Chat Screen - Immersive full-screen design with streaming text
+ * Chat Screen - Immersive full-screen design
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -44,48 +44,6 @@ const palette = {
   overlay: 'rgba(15, 25, 35, 0.6)',
 };
 
-// Animated typing dots component
-function TypingIndicator() {
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const animate = () => {
-      const duration = 400;
-      const delay = 150;
-      
-      Animated.sequence([
-        Animated.timing(dot1, { toValue: 1, duration, useNativeDriver: true }),
-        Animated.timing(dot2, { toValue: 1, duration, useNativeDriver: true }),
-        Animated.timing(dot3, { toValue: 1, duration, useNativeDriver: true }),
-        Animated.delay(200),
-        Animated.parallel([
-          Animated.timing(dot1, { toValue: 0, duration: 200, useNativeDriver: true }),
-          Animated.timing(dot2, { toValue: 0, duration: 200, useNativeDriver: true }),
-          Animated.timing(dot3, { toValue: 0, duration: 200, useNativeDriver: true }),
-        ])
-      ]).start(animate);
-    };
-    animate();
-  }, []);
-
-  const dotStyle = (anim) => ({
-    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
-    transform: [{
-      translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [0, -4] })
-    }]
-  });
-
-  return (
-    <View style={styles.typingContainer}>
-      <Animated.View style={[styles.typingDot, dotStyle(dot1)]} />
-      <Animated.View style={[styles.typingDot, dotStyle(dot2)]} />
-      <Animated.View style={[styles.typingDot, dotStyle(dot3)]} />
-    </View>
-  );
-}
-
 export default function ChatScreen({ navigation, selectedAvatar }) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState([]);
@@ -96,8 +54,7 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
   const [isTalking, setIsTalking] = useState(false);
   const [sound, setSound] = useState(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [streamingText, setStreamingText] = useState(''); // For streaming display
-  const [loadingStage, setLoadingStage] = useState(null); // 'thinking' | 'speaking' | null
+  const [loadingStage, setLoadingStage] = useState(null);
 
   const flatListRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -154,6 +111,26 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
     }, 20000);
   };
 
+  const playAudio = async (uri) => {
+    try {
+      const { sound: s } = await Audio.Sound.createAsync(
+        { uri }, 
+        { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true }
+      );
+      setSound(s);
+      setIsTalking(true);
+      s.setOnPlaybackStatusUpdate(st => { 
+        if (st.didJustFinish) {
+          setIsTalking(false);
+          s.unloadAsync();
+        }
+      });
+    } catch (error) {
+      console.error('Audio playback error:', error);
+      setIsTalking(false);
+    }
+  };
+
   const sendMessage = async (text, attachedFile = null) => {
     if (!text.trim() && !attachedFile) return;
 
@@ -164,115 +141,63 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
     setInputText('');
     setIsLoading(true);
     setLoadingStage('thinking');
-    setStreamingText('');
 
     try {
-      // Create placeholder message for streaming
-      const assistantMessageId = (Date.now() + 1).toString();
-      setMessages(prev => [...prev, { 
-        id: assistantMessageId, 
-        role: 'assistant', 
-        content: '', 
-        isStreaming: true,
-        timestamp: new Date() 
-      }]);
-
       const result = attachedFile
         ? await clawdbotService.chatWithFile(text, attachedFile.uri, attachedFile.name, attachedFile.type)
         : await clawdbotService.chat(text);
 
       if (result.ok) {
-        setLoadingStage('speaking');
-        
-        // Stream the text character by character
-        await clawdbotService.streamText(result.response, (char, currentText) => {
-          setStreamingText(currentText);
-          setMessages(prev => prev.map(m => 
-            m.id === assistantMessageId 
-              ? { ...m, content: currentText }
-              : m
-          ));
-          flatListRef.current?.scrollToEnd({ animated: false });
-        }, { charDelay: 12, wordDelay: 25, sentenceDelay: 60 });
-
-        // Mark as finished streaming
-        setMessages(prev => prev.map(m => 
-          m.id === assistantMessageId 
-            ? { ...m, isStreaming: false }
-            : m
-        ));
-        
+        // Show message immediately (no streaming delay)
+        const assistantMessageId = (Date.now() + 1).toString();
+        setMessages(prev => [...prev, { 
+          id: assistantMessageId, 
+          role: 'assistant', 
+          content: result.response, 
+          timestamp: new Date() 
+        }]);
         startFadeOut(assistantMessageId);
-        
-        // Start TTS in parallel
+        setIsLoading(false);
+        setLoadingStage(null);
+
+        // Start TTS immediately in parallel
         const config = clawdbotService.getConfig();
         if (config.hasCartesiaKey) {
-          playTTSCartesia(result.response);
+          clawdbotService.textToSpeechCartesia(result.response).then(tts => {
+            if (tts.ok && tts.audioBlob) {
+              const reader = new FileReader();
+              reader.onloadend = async () => {
+                const b64 = reader.result.split(',')[1];
+                const uri = cacheDirectory + 'tts_cartesia.mp3';
+                await writeAsStringAsync(uri, b64, { encoding: 'base64' });
+                await playAudio(uri);
+              };
+              reader.readAsDataURL(tts.audioBlob);
+            }
+          });
         } else if (config.hasElevenLabsKey) {
-          playTTS(result.response);
+          clawdbotService.textToSpeech(result.response).then(tts => {
+            if (tts.ok && tts.audioBlob) {
+              const reader = new FileReader();
+              reader.onloadend = async () => {
+                const b64 = reader.result.split(',')[1];
+                const uri = cacheDirectory + 'tts.mp3';
+                await writeAsStringAsync(uri, b64, { encoding: 'base64' });
+                await playAudio(uri);
+              };
+              reader.readAsDataURL(tts.audioBlob);
+            }
+          });
         }
       } else {
-        // Remove streaming message on error
-        setMessages(prev => prev.filter(m => m.id !== assistantMessageId));
         Alert.alert('Error', result.error || 'No response');
+        setIsLoading(false);
+        setLoadingStage(null);
       }
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally {
       setIsLoading(false);
       setLoadingStage(null);
-      setStreamingText('');
-    }
-  };
-
-  const playTTS = async (text) => {
-    try {
-      setIsTalking(true);
-      const tts = await clawdbotService.textToSpeech(text);
-      if (tts.ok && tts.audioBlob) {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const b64 = reader.result.split(',')[1];
-          const uri = cacheDirectory + 'tts.mp3';
-          await writeAsStringAsync(uri, b64, { encoding: 'base64' });
-          const { sound: s } = await Audio.Sound.createAsync({ uri }, { shouldPlay: true });
-          setSound(s);
-          s.setOnPlaybackStatusUpdate(st => { 
-            if (st.didJustFinish) setIsTalking(false); 
-          });
-        };
-        reader.readAsDataURL(tts.audioBlob);
-      }
-    } catch { setIsTalking(false); }
-  };
-
-  const playTTSCartesia = async (text) => {
-    try {
-      setIsTalking(true);
-      const tts = await clawdbotService.textToSpeechCartesia(text, (stage) => {
-        console.log('TTS stage:', stage);
-      });
-      
-      if (tts.ok && tts.audioBlob) {
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const b64 = reader.result.split(',')[1];
-          const uri = cacheDirectory + 'tts_cartesia.mp3';
-          await writeAsStringAsync(uri, b64, { encoding: 'base64' });
-          const { sound: s } = await Audio.Sound.createAsync(
-            { uri }, 
-            { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true }
-          );
-          setSound(s);
-          s.setOnPlaybackStatusUpdate(st => { 
-            if (st.didJustFinish) setIsTalking(false); 
-          });
-        };
-        reader.readAsDataURL(tts.audioBlob);
-      }
-    } catch (error) { 
-      console.error(error); 
-      setIsTalking(false); 
     }
   };
 
@@ -303,9 +228,7 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
       const uri = recording.getURI();
       setRecording(null);
       
-      const result = await clawdbotService.processVoice(uri, null, (stage) => {
-        setLoadingStage(stage);
-      });
+      const result = await clawdbotService.processVoice(uri);
       
       if (result.ok) {
         const userMessageId = Date.now().toString();
@@ -319,31 +242,27 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
         
         startFadeOut(userMessageId);
         startFadeOut(assistantMessageId);
+        setIsLoading(false);
+        setLoadingStage(null);
         
+        // Play audio immediately if available
         if (result.audioBlob) {
           const reader = new FileReader();
           reader.onloadend = async () => {
-            setIsTalking(true);
             const b64 = reader.result.split(',')[1];
             const fUri = cacheDirectory + 'voice_response.mp3';
             await writeAsStringAsync(fUri, b64, { encoding: 'base64' });
-            const { sound: s } = await Audio.Sound.createAsync(
-              { uri: fUri }, 
-              { shouldPlay: true, rate: 1.0, shouldCorrectPitch: true }
-            );
-            setSound(s);
-            s.setOnPlaybackStatusUpdate(st => { 
-              if (st.didJustFinish) setIsTalking(false); 
-            });
+            await playAudio(fUri);
           };
           reader.readAsDataURL(result.audioBlob);
         }
       } else {
         Alert.alert('Error', result.error || 'Fallo el procesamiento de voz');
+        setIsLoading(false);
+        setLoadingStage(null);
       }
     } catch (e) {
       Alert.alert('Error', e.message);
-    } finally {
       setIsLoading(false);
       setLoadingStage(null);
     }
@@ -382,9 +301,6 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
     switch (loadingStage) {
       case 'transcribing': return 'Escuchando...';
       case 'thinking': return 'Pensando...';
-      case 'speaking': return 'Generando voz...';
-      case 'connecting': return 'Conectando...';
-      case 'receiving': return 'Recibiendo audio...';
       default: return 'Cargando...';
     }
   };
@@ -412,11 +328,6 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           </View>
         )}
         <Text style={styles.msgText}>{item.content}</Text>
-        {item.isStreaming && (
-          <View style={styles.streamingIndicator}>
-            <TypingIndicator />
-          </View>
-        )}
       </Animated.View>
     );
   }, []);
@@ -475,7 +386,7 @@ export default function ChatScreen({ navigation, selectedAvatar }) {
           keyboardShouldPersistTaps="handled"
         />
 
-        {(isLoading || loadingStage) && (
+        {isLoading && (
           <View style={styles.loadingRow}>
             <ActivityIndicator color={palette.accent} size="small" />
             <Text style={styles.loadingText}>{getLoadingText()}</Text>
@@ -568,14 +479,6 @@ const styles = StyleSheet.create({
   userBubble: { backgroundColor: palette.userBubble, alignSelf: 'flex-end', borderBottomRightRadius: 6 },
   aiBubble: { backgroundColor: palette.aiBubble, alignSelf: 'flex-start', borderBottomLeftRadius: 6 },
   msgText: { color: palette.white, fontSize: 15, lineHeight: 21 },
-  streamingIndicator: { marginTop: 4, marginLeft: -2 },
-  typingContainer: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  typingDot: { 
-    width: 5, 
-    height: 5, 
-    borderRadius: 3, 
-    backgroundColor: palette.muted 
-  },
   voiceBadge: { flexDirection: 'row', alignItems: 'center', marginBottom: 3 },
   voiceBadgeText: { fontSize: 10, color: palette.muted, marginLeft: 3 },
   fileBadge: { 
